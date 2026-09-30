@@ -1,0 +1,118 @@
+name: Deploy
+
+# Pull requests: test and show the Terraform plan.
+# Pushes to main: test, terraform apply, point Discord at the Worker, register slash commands.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One Terraform run at a time, and never cancel an apply halfway through.
+concurrency:
+  group: terraform
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      APPLY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      # R2's S3-compatible API holds the Terraform state.
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      TF_VAR_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      TF_VAR_discord_application_id: ${{ vars.DISCORD_APPLICATION_ID }}
+      TF_VAR_discord_public_key: ${{ vars.DISCORD_PUBLIC_KEY }}
+      TF_VAR_huggingface_api_key: ${{ secrets.HUGGINGFACE_API_KEY }}
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Bundle Worker
+        run: npm run build
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform init
+        working-directory: infra
+        run: >-
+          terraform init -input=false
+          -backend-config="endpoints={s3=\"https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com\"}"
+
+      - name: Terraform fmt and validate
+        working-directory: infra
+        run: |
+          terraform fmt -check -recursive
+          terraform validate
+
+      - name: Terraform plan
+        working-directory: infra
+        run: |
+          terraform plan -input=false -no-color -out=tfplan | tee plan.txt
+          {
+            echo '### Terraform plan'
+            echo '```'
+            grep -E '^(Plan:|No changes|  # |Changes to Outputs)' plan.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Terraform apply
+        if: env.APPLY == 'true'
+        working-directory: infra
+        run: terraform apply -input=false tfplan
+
+      - name: Smoke test
+        if: env.APPLY == 'true'
+        working-directory: infra
+        run: |
+          url=$(terraform output -raw worker_url)
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$url/"
+
+      # Discord verifies the endpoint when it's saved (a signed PING and a badly
+      # signed request), so this also checks the deployed signature handling.
+      - name: Set Discord Interactions Endpoint URL
+        if: env.APPLY == 'true'
+        working-directory: infra
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        run: |
+          url=$(terraform output -raw interactions_endpoint_url)
+          curl --fail-with-body --silent --show-error -o /dev/null -X PATCH \
+            -H "Authorization: Bot ${DISCORD_BOT_TOKEN}" -H "Content-Type: application/json" \
+            -d "{\"interactions_endpoint_url\":\"${url}\"}" \
+            https://discord.com/api/v10/applications/@me
+          echo "Interactions Endpoint URL: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Register slash commands
+        if: env.APPLY == 'true'
+        env:
+          DISCORD_APPLICATION_ID: ${{ vars.DISCORD_APPLICATION_ID }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          # Optional: set to a server ID so commands update there instantly.
+          DISCORD_DEV_GUILD_ID: ${{ vars.DISCORD_DEV_GUILD_ID }}
+        run: npm run register-commands

@@ -1,0 +1,22 @@
+{
+  "name": "krugerrand-bot",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Discord bot on Cloudflare Workers for live gold and Krugerrand prices, and Krugerrand facts.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "register-commands": "tsx scripts/register-commands.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260926.1",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.0.0"
+  }
+}

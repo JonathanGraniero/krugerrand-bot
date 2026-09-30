@@ -1,0 +1,15 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env
+dist/
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/tfplan
+infra/plan.txt
+infra/*_override.tf
+
+# Left over from the Python/Lambda version
+__pycache__/
+*.zip

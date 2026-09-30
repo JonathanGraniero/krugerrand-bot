@@ -1,0 +1,7 @@
+# Used by `wrangler dev` and the build step only.
+# Production (Worker, bindings, secrets) is managed by Terraform in infra/
+# and deployed by .github/workflows/deploy.yml. Don't run `wrangler deploy`:
+# the next Terraform apply would overwrite it.
+name = "krugerrand-bot"
+main = "src/index.ts"
+compatibility_date = "2025-09-01" # keep in sync with infra/variables.tf

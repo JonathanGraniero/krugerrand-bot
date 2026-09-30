@@ -1,0 +1,10 @@
+# Copy to .dev.vars for local development (never commit .dev.vars).
+# In production these come from GitHub Actions secrets and variables (see README).
+DISCORD_APPLICATION_ID=
+DISCORD_PUBLIC_KEY=
+# Only used by `npm run register-commands`, not by the Worker.
+DISCORD_BOT_TOKEN=
+# Optional: AI-generated facts. Without it /krugerrandfact uses the built-in list.
+HUGGINGFACE_API_KEY=
+# Optional: register commands to one server instantly while developing
+DISCORD_DEV_GUILD_ID=
